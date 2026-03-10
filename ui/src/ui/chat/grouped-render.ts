@@ -19,6 +19,76 @@ type ImageBlock = {
   alt?: string;
 };
 
+type VideoBlock = {
+  rtspUrl: string;
+  wsUrl: string;
+  id: string;
+  title?: string;
+};
+
+const DEFAULT_VIDEO_WS_URL = "ws://localhost:8888";
+
+function extractRtspInfoFromText(text: string): { rtspUrl: string; wsUrl: string; title?: string } | null {
+  try {
+    const parsed = text.startsWith("{") ? JSON.parse(text) as Record<string, unknown> : {};
+    // Support multiple formats: resource+wsResource, rtsp+ws, rtsp_url+ws_url
+    const rtspUrl = parsed.resource ?? parsed.rtsp ?? parsed.rtsp_url;
+    const wsUrl = parsed.wsResource ?? parsed.ws ?? parsed.ws_url;
+    const title = parsed.title;
+    if (
+      typeof rtspUrl === "string" &&
+      rtspUrl.toLowerCase().startsWith("rtsp")
+    ) {
+      return {
+        rtspUrl: rtspUrl,
+        wsUrl:
+          typeof wsUrl === "string" && wsUrl
+            ? wsUrl
+            : DEFAULT_VIDEO_WS_URL,
+        title: typeof title === "string" ? title : undefined,
+      };
+    }
+  } catch {
+    // Not JSON, fall through to plain-text matching.
+  }
+
+  const rtspMatch = text.match(/rtsp:\/\/[^\s"']*/i);
+  if (!rtspMatch) {
+    return null;
+  }
+
+  const wsMatch = text.match(/wss?:\/\/[^\s"']*/i);
+  return {
+    rtspUrl: rtspMatch[0],
+    wsUrl: wsMatch ? wsMatch[0] : DEFAULT_VIDEO_WS_URL,
+  };
+}
+
+function extractRtspFromMessage(message: unknown): { rtspUrl: string; wsUrl: string } | null {
+  const msg = message as Record<string, unknown>;
+  const content = msg.content;
+  if (typeof content === "string") {
+    return extractRtspInfoFromText(content);
+  }
+
+  if (Array.isArray(content)) {
+    for (const block of content) {
+      if (typeof block !== "object" || block === null) {
+        continue;
+      }
+      const b = block as Record<string, unknown>;
+      if (b.type === "text" && typeof b.text === "string") {
+        const info = extractRtspInfoFromText(b.text);
+        if (info) {
+          return info;
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
 function extractImages(message: unknown): ImageBlock[] {
   const m = message as Record<string, unknown>;
   const content = m.content;
@@ -56,6 +126,60 @@ function extractImages(message: unknown): ImageBlock[] {
   return images;
 }
 
+function extractVideos(message: unknown): VideoBlock[] {
+  const m = message as Record<string, unknown>;
+  const videos: VideoBlock[] = [];
+  const content = m.content;
+  const messageKey =
+    typeof m.timestamp === "number" || typeof m.timestamp === "string"
+      ? String(m.timestamp)
+      : typeof m.id === "string"
+        ? m.id
+        : `${Date.now()}`;
+
+  if (typeof content === "string") {
+    const info = extractRtspInfoFromText(content);
+    if (info) {
+      videos.push({ ...info, id: `${messageKey}-0` });
+    }
+    return videos;
+  }
+
+  if (!Array.isArray(content)) {
+    return videos;
+  }
+
+  for (let i = 0; i < content.length; i++) {
+    const block = content[i];
+    if (typeof block !== "object" || block === null) {
+      continue;
+    }
+    const b = block as Record<string, unknown>;
+
+    if (b.type === "video") {
+      const rtspUrl = typeof (b.rtsp_url ?? b.rtspUrl ?? b.rtsp) === "string" ? String(b.rtsp_url ?? b.rtspUrl ?? b.rtsp) : "";
+      const wsUrlCandidate = b.ws_url ?? b.wsUrl ?? b.ws;
+      const wsUrl = typeof wsUrlCandidate === "string" && wsUrlCandidate ? wsUrlCandidate : DEFAULT_VIDEO_WS_URL;
+      const id = typeof b.id === "string" && b.id ? `${messageKey}-${b.id}` : `${messageKey}-${i}`;
+      const title = typeof b.title === "string" ? b.title : undefined;
+
+      if (rtspUrl) {
+        videos.push({ rtspUrl, wsUrl, id, title });
+      }
+      continue;
+    }
+
+    if (b.type === "text" && typeof b.text === "string") {
+      const info = extractRtspInfoFromText(b.text);
+      if (info) {
+        videos.push({ ...info, id: `${messageKey}-${i}` });
+      }
+    }
+  }
+
+  return videos;
+}
+
 export function renderReadingIndicatorGroup(assistant?: AssistantIdentity) {
   return html`
     <div class="chat-group assistant">
@@ -88,14 +212,14 @@ export function renderStreamingGroup(
       ${renderAvatar("assistant", assistant)}
       <div class="chat-group-messages">
         ${renderGroupedMessage(
-          {
-            role: "assistant",
-            content: [{ type: "text", text }],
-            timestamp: startedAt,
-          },
-          { isStreaming: true, showReasoning: false },
-          onOpenSidebar,
-        )}
+    {
+      role: "assistant",
+      content: [{ type: "text", text }],
+      timestamp: startedAt,
+    },
+    { isStreaming: true, showReasoning: false, rtspInfo: null },
+    onOpenSidebar,
+  )}
         <div class="chat-group-footer">
           <span class="chat-sender-name">${name}</span>
           <span class="chat-group-timestamp">${timestamp}</span>
@@ -129,23 +253,45 @@ export function renderMessageGroup(
     minute: "2-digit",
   });
 
+  function hasRtspString(message: unknown): boolean {
+    return extractRtspFromMessage(message) !== null;
+  }
+
+  const userRtspInfo = (() => {
+    for (const item of group.messages) {
+      const msg = item.message as Record<string, unknown>;
+      if (msg.role === "user") {
+        const info = extractRtspFromMessage(item.message);
+        if (info) return info;
+      }
+    }
+    return null;
+  })();
+
+  const userHasRtsp = userRtspInfo !== null;
+
   return html`
     <div class="chat-group ${roleClass}">
       ${renderAvatar(group.role, {
-        name: assistantName,
-        avatar: opts.assistantAvatar ?? null,
-      })}
+    name: assistantName,
+    avatar: opts.assistantAvatar ?? null,
+  })}
       <div class="chat-group-messages">
-        ${group.messages.map((item, index) =>
-          renderGroupedMessage(
-            item.message,
-            {
-              isStreaming: group.isStreaming && index === group.messages.length - 1,
-              showReasoning: opts.showReasoning,
-            },
-            opts.onOpenSidebar,
-          ),
-        )}
+        ${group.messages.map((item, index) => {
+    const msg = item.message as Record<string, unknown>;
+    const isAssistant = msg.role === "assistant";
+    const showVideo = isAssistant && userHasRtsp;
+    return renderGroupedMessage(
+      item.message,
+      {
+        isStreaming: group.isStreaming && index === group.messages.length - 1,
+        showReasoning: opts.showReasoning,
+        showVideo,
+        rtspInfo: showVideo ? userRtspInfo : null,
+      },
+      opts.onOpenSidebar,
+    );
+  })}
         <div class="chat-group-footer">
           <span class="chat-sender-name">${who}</span>
           <span class="chat-group-timestamp">${timestamp}</span>
@@ -208,7 +354,7 @@ function renderMessageImages(images: ImageBlock[]) {
   return html`
     <div class="chat-message-images">
       ${images.map(
-        (img) => html`
+    (img) => html`
           <img
             src=${img.url}
             alt=${img.alt ?? "Attached image"}
@@ -216,14 +362,39 @@ function renderMessageImages(images: ImageBlock[]) {
             @click=${() => openImage(img.url)}
           />
         `,
-      )}
+  )}
+    </div>
+  `;
+}
+
+function renderMessageVideos(videos: VideoBlock[]) {
+  if (videos.length === 0) {
+    return nothing;
+  }
+
+  return html`
+    <div class="chat-message-videos">
+      ${videos.map(
+    (video) => html`
+          <div 
+            class="chat-message-video" 
+            id="video-${video.id}" 
+            width="500"
+            height="350"
+            data-video-id="video-${video.id}" 
+            data-rtsp=${video.rtspUrl} 
+            data-ws=${video.wsUrl}
+            style="width: 500px; height: 350px;"
+          ></div>
+        `,
+  )}
     </div>
   `;
 }
 
 function renderGroupedMessage(
   message: unknown,
-  opts: { isStreaming: boolean; showReasoning: boolean },
+  opts: { isStreaming: boolean; showReasoning: boolean; showVideo?: boolean; rtspInfo?: { rtspUrl: string; wsUrl: string } | null },
   onOpenSidebar?: (content: string) => void,
 ) {
   const m = message as Record<string, unknown>;
@@ -239,6 +410,19 @@ function renderGroupedMessage(
   const hasToolCards = toolCards.length > 0;
   const images = extractImages(message);
   const hasImages = images.length > 0;
+  let videos = extractVideos(message);
+  const hasVideos = videos.length > 0;
+
+  // For assistant messages, always show video player (if no video content, use placeholder)
+  let showVideo = role === "assistant";
+  // if (showVideo) {
+  //   videos = [{
+  //     rtspUrl: "rtsp://placeholder",
+  //     wsUrl: "ws://placeholder",
+  //     id: `video-${Date.now()}`,
+  //   }];
+  // }
+  const shouldShowVideo = showVideo;
 
   const extractedText = extractTextCached(message);
   const extractedThinking =
@@ -261,26 +445,25 @@ function renderGroupedMessage(
     return html`${toolCards.map((card) => renderToolCardSidebar(card, onOpenSidebar))}`;
   }
 
-  if (!markdown && !hasToolCards && !hasImages) {
+  if (!markdown && !hasToolCards && !hasImages && !hasVideos) {
     return nothing;
   }
 
   return html`
     <div class="${bubbleClasses}">
       ${canCopyMarkdown ? renderCopyAsMarkdownButton(markdown!) : nothing}
+      ${shouldShowVideo ? renderMessageVideos(videos) : nothing}
       ${renderMessageImages(images)}
-      ${
-        reasoningMarkdown
-          ? html`<div class="chat-thinking">${unsafeHTML(
-              toSanitizedMarkdownHtml(reasoningMarkdown),
-            )}</div>`
-          : nothing
-      }
-      ${
-        markdown
-          ? html`<div class="chat-text" dir="${detectTextDirection(markdown)}">${unsafeHTML(toSanitizedMarkdownHtml(markdown))}</div>`
-          : nothing
-      }
+      ${reasoningMarkdown
+      ? html`<div class="chat-thinking">${unsafeHTML(
+        toSanitizedMarkdownHtml(reasoningMarkdown),
+      )}</div>`
+      : nothing
+    }
+      ${markdown
+      ? html`<div class="chat-text" dir="${detectTextDirection(markdown)}">${unsafeHTML(toSanitizedMarkdownHtml(markdown))}</div>`
+      : nothing
+    }
       ${toolCards.map((card) => renderToolCardSidebar(card, onOpenSidebar))}
     </div>
   `;

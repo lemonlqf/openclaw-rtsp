@@ -259,6 +259,42 @@
   justify-content: flex-end;
 }
 
+/* Message video player (RTSP stream) */
+.chat-message-videos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.chat-message-video {
+  width: 320px;
+  height: 180px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #1c2834;
+}
+
+.chat-message-video .ws-player {
+  width: 100%;
+  height: 100%;
+}
+
+.chat-message-video .player-wrapper {
+  height: 100%;
+}
+
+.chat-message-video video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* User message videos align right */
+.chat-group.user .chat-message-videos {
+  justify-content: flex-end;
+}
+
 /* Compose input row - horizontal layout */
 .chat-compose__row {
   display: flex;

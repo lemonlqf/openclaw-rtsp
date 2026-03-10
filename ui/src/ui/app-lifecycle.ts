@@ -18,6 +18,7 @@ import {
 } from "./app-settings.ts";
 import { loadControlUiBootstrapConfig } from "./controllers/control-ui-bootstrap.ts";
 import type { Tab } from "./navigation.ts";
+import { initAllVideoPlayers } from "./video-player.ts";
 
 type LifecycleHost = {
   basePath: string;
@@ -94,6 +95,7 @@ export function handleUpdated(host: LifecycleHost, changed: Map<PropertyKey, unk
       host as unknown as Parameters<typeof scheduleChatScroll>[0],
       forcedByTab || forcedByLoad || !host.chatHasAutoScrolled,
     );
+    initAllVideoPlayers();
   }
   if (
     host.tab === "logs" &&
