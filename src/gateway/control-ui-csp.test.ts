@@ -15,4 +15,9 @@ describe("buildControlUiCspHeader", () => {
     expect(csp).toContain("https://fonts.googleapis.com");
     expect(csp).toContain("font-src 'self' https://fonts.gstatic.com");
   });
+
+  it("allows blob-backed media playback", () => {
+    const csp = buildControlUiCspHeader();
+    expect(csp).toContain("media-src 'self' blob:");
+  });
 });

@@ -14,6 +14,7 @@ declare global {
 interface WSPlayerOptions {
   type: "real" | "realmonitor" | "record" | "playback";
   el: string;
+  importLoad?: boolean;
   config?: {
     division?: number;
     num?: number;
@@ -46,7 +47,7 @@ interface WSPlayerInstance {
     rtspURL: string;
     wsURL: string;
     selectIndex?: number;
-    streamType?: string;
+    streamType?: string | number;
     channelId?: string;
     playerAdapter?: string;
     channelData?: Record<string, unknown>;
@@ -62,6 +63,15 @@ const playerInstances = new Map<string, WSPlayerInstance>();
 
 function sanitizeVideoUrl(url: string): string {
   return url.trim().replace(/^[`"'<(\[]+|[`"'>)\],.;:!?]+$/g, "");
+}
+
+function extractChannelIdFromRtspUrl(rtspUrl: string): string {
+  try {
+    const url = new URL(rtspUrl);
+    return url.searchParams.get("vcuid")?.trim() ?? "";
+  } catch {
+    return "";
+  }
 }
 
 function resolveWSPlayerConstructor(value: Window["WSPlayer"]): WSPlayerConstructor | null {
@@ -92,6 +102,7 @@ export function initVideoPlayer(
   const prefixUrl = basePath ? `${basePath}/wsplayer` : "wsplayer";
   const normalizedRtspUrl = sanitizeVideoUrl(rtspUrl);
   const normalizedWsUrl = sanitizeVideoUrl(wsUrl);
+  const channelId = extractChannelIdFromRtspUrl(normalizedRtspUrl);
 
   if (!window.WSPlayer) {
     console.error("WSPlayer not loaded");
@@ -113,6 +124,7 @@ export function initVideoPlayer(
       type: "real",
       el: containerId,
       prefixUrl,
+      importLoad: true,
       protocol: normalizedWsUrl.startsWith("wss") ? "wss" : "ws",
       config: {
         division: 1,
@@ -132,7 +144,7 @@ export function initVideoPlayer(
         useH265MSE: true,
         autoplay: true,
         muted: true,
-        isDynamicLoadLib: false,
+        isDynamicLoadLib: true,
       },
       receiveMessageFromWSPlayer: (method: string, data?: unknown, err?: unknown) => {
         console.log(`[VideoPlayer] Player ${playerId} message:`, method, data, err);
@@ -143,6 +155,8 @@ export function initVideoPlayer(
       rtspURL: normalizedRtspUrl,
       wsURL: normalizedWsUrl,
       selectIndex: 0,
+      channelId,
+      streamType: 0
     });
 
     playerInstances.set(playerId, player);

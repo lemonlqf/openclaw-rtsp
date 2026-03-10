@@ -25,7 +25,7 @@ function copyWsplayerFiles() {
     closeBundle() {
       const srcDir = path.resolve(here, "src/wsplayer");
       const destDir = path.resolve(here, "../dist/control-ui/wsplayer");
-      
+
       if (!fs.existsSync(destDir)) {
         fs.mkdirSync(destDir, { recursive: true });
       }
@@ -48,13 +48,8 @@ function copyWsplayerFiles() {
 
       copyDir(srcDir, destDir);
 
-      // Also copy icon folder to WSPlayer/icon for WSPlayer compatibility
-      const iconSrc = path.resolve(srcDir, "icon");
-      const iconDest = path.resolve(destDir, "WSPlayer/icon");
-      if (fs.existsSync(iconSrc) && !fs.existsSync(iconDest)) {
-        copyDir(iconSrc, iconDest);
-        console.log("Copied wsplayer/icon to WSPlayer/icon");
-      }
+      // WSPlayer's runtime loader hardcodes a nested /WSPlayer/* asset layout.
+      copyDir(srcDir, path.resolve(destDir, "WSPlayer"));
 
       console.log("Copied wsplayer files to dist");
     },
