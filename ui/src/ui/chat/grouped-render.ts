@@ -28,6 +28,10 @@ type VideoBlock = {
 
 const DEFAULT_VIDEO_WS_URL = "ws://localhost:8888";
 
+function sanitizeVideoUrl(url: string): string {
+  return url.trim().replace(/^[`"'<(\[]+|[`"'>)\],.;:!?]+$/g, "");
+}
+
 function extractRtspInfoFromText(text: string): { rtspUrl: string; wsUrl: string; title?: string } | null {
   try {
     const parsed = text.startsWith("{") ? JSON.parse(text) as Record<string, unknown> : {};
@@ -37,13 +41,13 @@ function extractRtspInfoFromText(text: string): { rtspUrl: string; wsUrl: string
     const title = parsed.title;
     if (
       typeof rtspUrl === "string" &&
-      rtspUrl.toLowerCase().startsWith("rtsp")
+      sanitizeVideoUrl(rtspUrl).toLowerCase().startsWith("rtsp")
     ) {
       return {
-        rtspUrl: rtspUrl,
+        rtspUrl: sanitizeVideoUrl(rtspUrl),
         wsUrl:
           typeof wsUrl === "string" && wsUrl
-            ? wsUrl
+            ? sanitizeVideoUrl(wsUrl)
             : DEFAULT_VIDEO_WS_URL,
         title: typeof title === "string" ? title : undefined,
       };
@@ -52,15 +56,15 @@ function extractRtspInfoFromText(text: string): { rtspUrl: string; wsUrl: string
     // Not JSON, fall through to plain-text matching.
   }
 
-  const rtspMatch = text.match(/rtsp:\/\/[^\s"']*/i);
+  const rtspMatch = text.match(/rtsp:\/\/[^\s"'`>]*/i);
   if (!rtspMatch) {
     return null;
   }
 
-  const wsMatch = text.match(/wss?:\/\/[^\s"']*/i);
+  const wsMatch = text.match(/wss?:\/\/[^\s"'`>]*/i);
   return {
-    rtspUrl: rtspMatch[0],
-    wsUrl: wsMatch ? wsMatch[0] : DEFAULT_VIDEO_WS_URL,
+    rtspUrl: sanitizeVideoUrl(rtspMatch[0]),
+    wsUrl: wsMatch ? sanitizeVideoUrl(wsMatch[0]) : DEFAULT_VIDEO_WS_URL,
   };
 }
 
@@ -157,9 +161,9 @@ function extractVideos(message: unknown): VideoBlock[] {
     const b = block as Record<string, unknown>;
 
     if (b.type === "video") {
-      const rtspUrl = typeof (b.rtsp_url ?? b.rtspUrl ?? b.rtsp) === "string" ? String(b.rtsp_url ?? b.rtspUrl ?? b.rtsp) : "";
+      const rtspUrl = typeof (b.rtsp_url ?? b.rtspUrl ?? b.rtsp) === "string" ? sanitizeVideoUrl(String(b.rtsp_url ?? b.rtspUrl ?? b.rtsp)) : "";
       const wsUrlCandidate = b.ws_url ?? b.wsUrl ?? b.ws;
-      const wsUrl = typeof wsUrlCandidate === "string" && wsUrlCandidate ? wsUrlCandidate : DEFAULT_VIDEO_WS_URL;
+      const wsUrl = typeof wsUrlCandidate === "string" && wsUrlCandidate ? sanitizeVideoUrl(wsUrlCandidate) : DEFAULT_VIDEO_WS_URL;
       const id = typeof b.id === "string" && b.id ? `${messageKey}-${b.id}` : `${messageKey}-${i}`;
       const title = typeof b.title === "string" ? b.title : undefined;
 

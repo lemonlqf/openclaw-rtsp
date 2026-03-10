@@ -60,6 +60,10 @@ type WSPlayerConstructor = new (options: WSPlayerOptions) => WSPlayerInstance;
 
 const playerInstances = new Map<string, WSPlayerInstance>();
 
+function sanitizeVideoUrl(url: string): string {
+  return url.trim().replace(/^[`"'<(\[]+|[`"'>)\],.;:!?]+$/g, "");
+}
+
 function resolveWSPlayerConstructor(value: Window["WSPlayer"]): WSPlayerConstructor | null {
   if (typeof value === "function") {
     return value;
@@ -86,6 +90,8 @@ export function initVideoPlayer(
   console.log("[VideoPlayer] initVideoPlayer called, containerId:", containerId);
   const basePath = inferBasePath();
   const prefixUrl = basePath ? `${basePath}/wsplayer` : "wsplayer";
+  const normalizedRtspUrl = sanitizeVideoUrl(rtspUrl);
+  const normalizedWsUrl = sanitizeVideoUrl(wsUrl);
 
   if (!window.WSPlayer) {
     console.error("WSPlayer not loaded");
@@ -107,7 +113,7 @@ export function initVideoPlayer(
       type: "real",
       el: containerId,
       prefixUrl,
-      protocol: wsUrl.startsWith("wss") ? "wss" : "ws",
+      protocol: normalizedWsUrl.startsWith("wss") ? "wss" : "ws",
       config: {
         division: 1,
         num: 1,
@@ -134,8 +140,8 @@ export function initVideoPlayer(
     });
 
     player.realByUrl({
-      rtspURL: rtspUrl,
-      wsURL: wsUrl,
+      rtspURL: normalizedRtspUrl,
+      wsURL: normalizedWsUrl,
       selectIndex: 0,
     });
 
