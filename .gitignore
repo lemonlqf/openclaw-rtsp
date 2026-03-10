@@ -1,8 +1,11 @@
 node_modules
 **/node_modules/
+.pnpm/
+**/.pnpm/
 .env
 docker-compose.extra.yml
 dist
+**/dist/
 pnpm-lock.yaml
 bun.lock
 bun.lockb
@@ -82,7 +85,16 @@ apps/ios/*.mobileprovision
 docs/.local/
 IDENTITY.md
 USER.md
-.tgz
+*.7z
+*.bz2
+*.gz
+*.tgz
+*.rar
+*.tar
+*.tar.gz
+*.xz
+*.zip
+nul
 .idea
 
 # local tooling
